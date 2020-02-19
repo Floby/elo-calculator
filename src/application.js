@@ -2,14 +2,15 @@ const express = require('express')
 const joi = require('@hapi/joi')
 const Player = require('./player')
 const Game = require('./game')
+const redis = require('redis')
+
+const client = redis.createClient()
 const app = express()
 
 app.use(express.json())
-
-// repositories
-
-const eloPerPlayerRepository = {}
-const gameRepository = []
+client.on('error', function (error) {
+  console.error(error)
+})
 
 // schemas
 
@@ -30,37 +31,49 @@ app.post('/games', (req, res) => {
     return
   }
 
-  createGame(gameCreationCommand)
+  client.get('eloPerPlayer', (rawEloPerPlayer) => {
+    const eloPerPlayer = JSON.parse(rawEloPerPlayer) || {}
+    console.log(eloPerPlayer)
+    client.get('games', (rawGames) => {
+      const games = JSON.parse(rawGames) || []
+      const game = createGame(gameCreationCommand, eloPerPlayer, games)
+      games.push(game)
+      client.set('games', JSON.stringify(games))
+
+      game.players.forEach(player => eloPerPlayer[player.name] = player.elo)
+      client.set('eloPerPlayer', JSON.stringify(eloPerPlayer))
+    })
+  })
 
   res.status(204).send()
 })
 
 app.get('/ladder', (req, res) => {
-  const ladder = Object.keys(eloPerPlayerRepository)
-    .map(toPlayer)
-    .sort(highestEloFirst)
-
-  res.status(200).send(ladder)
+  client.get('eloPerPlayer', (rawEloPerPlayer) => {
+    const eloPerPlayer = JSON.parse(rawEloPerPlayer) || {}
+    const ladder = Object.keys(eloPerPlayer)
+      .map(toPlayer(eloPerPlayer))
+      .sort(highestEloFirst)
+    res.status(200).send(ladder)
+  })
 })
 
 // usecases
 
-
-function createGame (command) {
+function createGame(command, eloPerPlayer, games) {
   const itemThatWon = command.find(hasWon)
-  const players = command.map(item => toPlayer(item.name))
+  const players = command.map(item => toPlayer(eloPerPlayer)(item.name))
   const game = new Game(players)
 
   const playerWhoWon = players.find(nameMatches(itemThatWon))
   game.finish(playerWhoWon)
 
-  gameRepository.push(game)
-  game.players.forEach(player => eloPerPlayerRepository[player.name] = player.elo)
+  return game
 }
 
 // utils
 
-const toPlayer = (playerName) => new Player(playerName, eloPerPlayerRepository[playerName])
+const toPlayer = (eloPerPlayer) => (playerName) => new Player(playerName, eloPerPlayer[playerName])
 const highestEloFirst = (a, b) => b.elo - a.elo
 const hasWon = (player) => player.won === true
 const nameMatches = (itemThatWon) => (player) => player.name === itemThatWon.name
