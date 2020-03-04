@@ -1,7 +1,8 @@
 module.exports = class Game {
-  constructor(players) {
+  constructor(players, sessionId) {
     this.checkPlayersNameAreUnique(players);
     this.players = players;
+    this.sessionId = sessionId;
   }
 
   finish(winner) {

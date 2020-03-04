@@ -13,8 +13,8 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  next()
-})
+  next();
+});
 
 redis
   .on('error', (error) => {
@@ -41,6 +41,10 @@ app.post('/games', async (req, res) => {
   let gameCreationCommand;
   try {
     gameCreationCommand = joi.attempt(req.body, gameCreationSchema);
+    const sessionId = req.query.session_id
+      ? joi.attempt(req.query.session_id, joi.string().uuid())
+      : undefined;
+    gameCreationCommand.sessionId = sessionId;
   } catch (e) {
     res.status(400).send(e.message);
     return;
@@ -80,7 +84,7 @@ app.get('/ladder', async (req, res) => {
 function createGame(command, eloPerPlayer) {
   const itemThatWon = command.find(hasWon);
   const players = command.map((item) => toPlayer(eloPerPlayer)(item.name));
-  const game = new Game(players);
+  const game = new Game(players, command.sessionId);
 
   const playerWhoWon = players.find(nameMatches(itemThatWon));
   game.finish(playerWhoWon);
